@@ -40,31 +40,31 @@ if uploaded_file:
                 fail_data.append((tc_id, tc_name, timestamp, step, description))
 
     if fail_data:
-    df = pd.DataFrame(fail_data, columns=[
-        "Test Case ID", "Test Case Name", "Timestamp", "Test Step", "Fail Description"
-    ])
-
-    df["Count"] = df.groupby(["Test Case ID", "Test Case Name", "Fail Description"])["Fail Description"].transform("count")
-    df_summary = df.drop_duplicates(subset=["Test Case ID", "Test Case Name", "Fail Description"])
-
-    st.success(f"✅ Extracted {len(df_summary)} unique failures.")
-    st.dataframe(df_summary)
-
-    # Export to Excel
-    html_filename = uploaded_file.name
-    base_name = os.path.splitext(html_filename)[0]
-    output_filename = f"{base_name}.xlsx"
-
-    output = BytesIO()
-    with pd.ExcelWriter(output, engine='openpyxl') as writer:
-        df_summary.to_excel(writer, index=False, sheet_name='Failures')
-    output.seek(0)
-
-    st.download_button(
-        label=f"📥 Download '{output_filename}'",
-        data=output,
-        file_name=output_filename,
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-    )
+        df = pd.DataFrame(fail_data, columns=[
+            "Test Case ID", "Test Case Name", "Timestamp", "Test Step", "Fail Description"
+        ])
+    
+        df["Count"] = df.groupby(["Test Case ID", "Test Case Name", "Fail Description"])["Fail Description"].transform("count")
+        df_summary = df.drop_duplicates(subset=["Test Case ID", "Test Case Name", "Fail Description"])
+    
+        st.success(f"✅ Extracted {len(df_summary)} unique failures.")
+        st.dataframe(df_summary)
+    
+        # Export to Excel
+        html_filename = uploaded_file.name
+        base_name = os.path.splitext(html_filename)[0]
+        output_filename = f"{base_name}.xlsx"
+    
+        output = BytesIO()
+        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            df_summary.to_excel(writer, index=False, sheet_name='Failures')
+        output.seek(0)
+    
+        st.download_button(
+            label=f"📥 Download '{output_filename}'",
+            data=output,
+            file_name=output_filename,
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
 else:
     st.warning("No failures found in the uploaded report.")
