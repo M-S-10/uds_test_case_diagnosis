@@ -3,6 +3,7 @@ from bs4 import BeautifulSoup
 import pandas as pd
 import re
 from io import BytesIO
+import os
 
 st.title("Vector CANoe HTML Test Report - Failure Extractor")
 
