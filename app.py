@@ -1,5 +1,4 @@
 import streamlit as st
-from bs4 import BeautifulSoup
 import pandas as pd
 import re
 from io import BytesIO
@@ -12,67 +11,67 @@ st.title("Vector CANoe HTML Test Report - Failure Extractor")
 uploaded_file = st.file_uploader("Upload Vector CANoe HTML file", type="html")
 
 
-# ✅ Cache processing to avoid recomputation
-@st.cache_data(show_spinner=True)
-def process_html(html_bytes):
-    html_content = html_bytes.decode("utf-8", errors="ignore")
-
-    # ✅ Use faster parser
-    soup = BeautifulSoup(html_content, "lxml")
-
+def process_html_stream(uploaded_file):
     fail_data = []
 
-    # ✅ Find only failed test cases
-    test_cases = soup.find_all("td", class_="TestcaseHeadingNegativeResult")
+    tc_id, tc_name = None, None
+    inside_fail_section = False
 
-    for heading in test_cases:
-        heading_text = heading.get_text(strip=True)
+    progress_bar = st.progress(0)
+    status_text = st.empty()
 
-        match = re.search(r'Test Case ([\d\/]+): (.+): Failed', heading_text)
-        if not match:
-            continue
+    # ✅ Get total size (for progress)
+    total_size = uploaded_file.size
+    bytes_processed = 0
 
-        tc_id, tc_name = match.groups()
+    chunk_size = 1024 * 1024  # 1 MB chunks
 
-        # ✅ Efficient "Main Part" lookup
-        main_part_tag = heading.find_next(
-            lambda tag: tag.name == "big" and "Main Part of Test Case" in tag.text
-        )
-        if not main_part_tag:
-            continue
+    # ✅ Reset pointer
+    uploaded_file.seek(0)
 
-        parent_table = main_part_tag.find_parent("table")
-        if not parent_table:
-            continue
+    for chunk in uploaded_file:
+        bytes_processed += len(chunk)
 
-        next_div = parent_table.find_next_sibling("div")
-        if not next_div:
-            continue
+        # ✅ Update progress
+        progress = min(bytes_processed / total_size, 1.0)
+        progress_bar.progress(progress)
+        status_text.text(f"Processing... {int(progress * 100)}%")
 
-        result_table = next_div.find("table", class_="ResultTable")
-        if not result_table:
-            continue
+        # ✅ Decode chunk
+        lines = chunk.decode("utf-8", errors="ignore").splitlines()
 
-        # ✅ Extract failed rows only
-        for row in result_table.find_all("tr"):
-            cells = row.find_all("td")
-
-            if len(cells) < 4:
+        for line in lines:
+            # ✅ Detect failed test case
+            if "TestcaseHeadingNegativeResult" in line:
+                match = re.search(r'Test Case ([\d\/]+): (.+?): Failed', line)
+                if match:
+                    tc_id, tc_name = match.groups()
+                    inside_fail_section = True
                 continue
 
-            classes = cells[3].get("class", [])
-            if "NegativeResultCell" not in classes:
+            # ✅ End of block
+            if inside_fail_section and "</table>" in line:
+                inside_fail_section = False
                 continue
 
-            fail_data.append((
-                tc_id,
-                tc_name,
-                cells[0].get_text(strip=True),
-                cells[1].get_text(strip=True),
-                cells[2].get_text(strip=True)
-            ))
+            # ✅ Extract failed rows
+            if inside_fail_section and "NegativeResultCell" in line:
+                cols = re.findall(r'<td.*?>(.*?)</td>', line)
 
-    # ✅ Convert to DataFrame safely
+                if len(cols) >= 3:
+                    clean = lambda x: re.sub('<.*?>', '', x).strip()
+
+                    fail_data.append((
+                        tc_id,
+                        tc_name,
+                        clean(cols[0]),
+                        clean(cols[1]) if len(cols) > 1 else "",
+                        clean(cols[2]) if len(cols) > 2 else ""
+                    ))
+
+    progress_bar.progress(100)
+    status_text.text("✅ Processing complete!")
+
     if not fail_data:
         return None, None
 
@@ -80,7 +79,6 @@ def process_html(html_bytes):
         "Test Case ID", "Test Case Name", "Timestamp", "Test Step", "Fail Description"
     ])
 
-    # ✅ Optimize grouping
     df["Count"] = df.groupby(
         ["Test Case ID", "Test Case Name", "Fail Description"]
     )["Fail Description"].transform("count")
@@ -94,24 +92,21 @@ def process_html(html_bytes):
 
 if uploaded_file:
     try:
-        # ✅ Read ONCE (important for large files)
-        html_bytes = uploaded_file.read()
+        with st.spinner("🔄 Processing large HTML report efficiently..."):
+            df_summary, count = process_html_stream(uploaded_file)
 
-        with st.spinner("🔄 Processing large HTML report..."):
-            df_summary, count = process_html(html_bytes)
-
-        if df_summary is None or df_summary.empty:
+        if df_summary is None:
             st.warning("No failures found in the uploaded report.")
         else:
             st.success(f"✅ Extracted {count} unique failures.")
 
-            # ✅ Prevent UI crash for large datasets
+            # ✅ Safe display
             st.dataframe(df_summary.head(1000), use_container_width=True)
 
             if len(df_summary) > 1000:
                 st.info("Showing first 1000 rows. Download full file below.")
 
-            # ✅ Excel export
+            # ✅ Export
             html_filename = uploaded_file.name
             base_name = os.path.splitext(html_filename)[0]
             output_filename = f"{base_name}.xlsx"
@@ -130,7 +125,7 @@ if uploaded_file:
             )
 
     except Exception as e:
-        st.error(f"❌ Error processing file: {str(e)}")
+        st.error(f"❌ Error: {str(e)}")
 
 else:
     st.info("Please upload a CANoe HTML report file.")
