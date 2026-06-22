@@ -1,4 +1,5 @@
 streamlit
+beautifulsoup4
 pandas
 openpyxl
-beautifulsoup4
+lxml
